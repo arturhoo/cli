@@ -49,12 +49,12 @@ type CreateOptions struct {
 	WebMode     bool
 	RecoverFile string
 
-	IsDraft        bool
-	Title          string
-	Body           string
-	BaseBranch     string
-	HeadBranch     string
-	PushToBaseRepo bool
+	IsDraft    bool
+	Title      string
+	Body       string
+	BaseBranch string
+	HeadBranch string
+	PushToRepo string
 
 	Reviewers []string
 	Assignees []string
@@ -208,7 +208,7 @@ func NewCmdCreate(f *cmdutil.Factory, runF func(*CreateOptions) error) *cobra.Co
 	fl.Bool("no-maintainer-edit", false, "Disable maintainer's ability to modify pull request")
 	fl.StringVar(&opts.RecoverFile, "recover", "", "Recover input from a failed run of create")
 	fl.StringVarP(&opts.Template, "template", "T", "", "Template `file` to use as starting body text")
-	fl.BoolVar(&opts.PushToBaseRepo, "push-to-base-repo", false, "Push the head branch to the base repository")
+	fl.StringVar(&opts.PushToRepo, "push-to-repo", "", "Push the head branch to the requested repository")
 
 	_ = cmdutil.RegisterBranchCompletionFlags(f.GitClient, cmd, "base", "head")
 
@@ -578,19 +578,32 @@ func NewCreateContext(opts *CreateOptions) (*CreateContext, error) {
 	}
 
 	// check if the user requested for the base repository to be treated as the head repository
-	if headRepo == nil && isPushEnabled && opts.PushToBaseRepo {
+	if headRepo == nil && isPushEnabled && opts.PushToRepo != "" {
+		var promptRequested bool
 		pushableRepos, err := repoContext.HeadRepos()
 		if err != nil {
 			return nil, err
 		}
 
-		for _, r := range pushableRepos {
-			if ghrepo.IsSame(baseRepo, r) {
-				headRepo = r
+		switch opts.PushToRepo {
+		case "base":
+			for _, r := range pushableRepos {
+				if ghrepo.IsSame(baseRepo, r) {
+					headRepo = r
+				}
+			}
+		case "prompt":
+			promptRequested = true
+		default:
+			requestedRepo, _ := ghrepo.FromFullName(opts.PushToRepo)
+			for _, r := range pushableRepos {
+				if ghrepo.IsSame(requestedRepo, r) {
+					headRepo = r
+				}
 			}
 		}
 
-		if headRepo == nil {
+		if !promptRequested && headRepo == nil {
 			return nil, fmt.Errorf("the user might lack write access to the base repository")
 		}
 	}
